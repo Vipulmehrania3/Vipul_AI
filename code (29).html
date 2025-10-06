@@ -1,494 +1,186 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>SolveVipul - AI Assistant</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
-    
-    <style>
-        :root {
-            --primary-color: #a259ff; /* Vibrant Purple */
-            --secondary-color: #6a3093; /* Deeper Purple */
-            --background-color: #12121c;
-            --surface-color: #1e1e2d;
-            --text-color: #f0f0f5;
-            --text-secondary-color: #a0a0b0;
-            --border-color: #30304a;
-            --input-bg-color: #28283a;
-            --error-color: #ff6060;
-            --success-color: #00e0a0;
-        }
+<script>
+const mainNav = document.getElementById('main-nav');
+const views = {
+    apiKey: document.getElementById('api-key-view'),
+    appContent: document.getElementById('app-content-view'),
+    processing: document.getElementById('processing-view'),
+    results: document.getElementById('results-view'),
+};
+const apiKeyInput = document.getElementById('api-key-input');
+const saveApiKeyBtn = document.getElementById('save-api-key-btn');
+const apiKeyStatus = document.getElementById('api-key-status');
+const navSolveBtn = document.getElementById('nav-solve');
+const navChatBtn = document.getElementById('nav-chat');
+const loaderText = document.getElementById('loader-text');
+const resultsContent = views.results.querySelector('.solution-content');
+const backToSolverBtn = document.getElementById('back-to-solver-btn');
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { height: 100%; overflow: hidden; }
+let googleApiKey = '';
+const markdownConverter = new showdown.Converter({ ghCompatibleHeaderId: true, simplifiedAutoLink: true, strikethrough: true, tables: true, tasklists: true, simpleLineBreaks: true });
+let chatHistory = [];
+let chatImage = { data: null, mimeType: null };
 
-        body {
-            font-family: 'Poppins', sans-serif;
-            background-color: var(--background-color);
-            background-image: 
-                radial-gradient(circle at 10% 20%, hsla(255, 50%, 40%, 0.25), transparent 40%),
-                radial-gradient(circle at 80% 90%, hsla(280, 50%, 40%, 0.25), transparent 50%);
-            color: var(--text-color);
-            display: flex; justify-content: center; align-items: center; padding: 10px;
-        }
+function showView(viewId) {
+    Object.values(views).forEach(v => v.classList.remove('active'));
+    if (views[viewId]) views[viewId].classList.add('active');
+}
 
-        .app-container {
-            width: 100%; height: 100%; max-width: 420px; max-height: 860px;
-            background: rgba(30, 30, 45, 0.75);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border-radius: 30px;
-            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5);
-            border: 1px solid var(--border-color);
-            display: flex; flex-direction: column; overflow: hidden; position: relative;
-        }
-        
-        header {
-            padding: 15px 20px; text-align: center; flex-shrink: 0;
-            background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        header h1 { font-size: 1.6em; font-weight: 700; color: #fff; text-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+function showSection(sectionHTML, activeNav) {
+    views.appContent.innerHTML = sectionHTML;
+    navSolveBtn.classList.toggle('active', activeNav === 'solve');
+    navChatBtn.classList.toggle('active', activeNav === 'chat');
 
-        main { flex-grow: 1; position: relative; width: 100%; overflow: hidden; }
+    if (activeNav === 'solve') {
+        document.getElementById('upload-btn-wrapper').addEventListener('click', () => document.getElementById('file-input').click());
+        document.getElementById('file-input').addEventListener('change', handleSolverUpload);
+    } else if (activeNav === 'chat') {
+        startNewChat();
+    }
+}
 
-        .view {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center;
-            background: transparent;
-            transition: opacity 0.3s ease, visibility 0.3s;
-            opacity: 0; visibility: hidden;
-        }
-        .view.active { opacity: 1; visibility: visible; }
-        .view h2 { font-weight: 600; text-align: center; margin-bottom: 20px; }
-        
-        #api-key-view p { text-align: center; color: var(--text-secondary-color); margin-bottom: 20px; font-size: 0.9em; line-height: 1.5; }
-        .api-link { color: var(--primary-color); text-decoration: none; font-weight: 600;}
-        #api-key-input {
-            width: 100%; padding: 15px; border-radius: 10px;
-            border: 1px solid var(--border-color); background-color: var(--input-bg-color);
-            color: var(--text-color); font-family: 'Roboto Mono', monospace; margin-bottom: 15px;
-        }
-        #api-key-status { font-size: 0.9em; height: 20px; margin-bottom: 10px; text-align: center; font-weight: 600; transition: color 0.3s; }
-        .api-key-status.success { color: var(--success-color); }
-        .api-key-status.error { color: var(--error-color); }
+function initializeAppUI() {
+    mainNav.style.display = 'flex';
+    showSection(getSolverHTML(), 'solve');
+    showView('appContent');
+}
 
-        /* --- Solver View Button --- */
-        #solver-view { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        #upload-btn-wrapper {
-            position: relative;
-            width: 100%;
-            padding: 2px;
-            border-radius: 22px;
-            background: linear-gradient(135deg, var(--secondary-color), var(--primary-color));
-            transition: transform 0.3s ease;
-        }
-        #upload-btn-wrapper:hover { transform: translateY(-5px) scale(1.02); box-shadow: 0 10px 25px hsla(260, 80%, 60%, 0.2); }
-        #upload-btn {
-            background: var(--surface-color);
-            padding: 50px 25px;
-            border-radius: 20px;
-            cursor: pointer; text-align: center;
-            width: 100%;
-        }
-        #upload-btn svg { width: 60px; height: 60px; margin-bottom: 20px; stroke: var(--primary-color); fill: none; }
-        #upload-btn p { font-size: 1.4em; font-weight: 600; }
-        
-        #processing-view .loader {
-            border: 5px solid #ffffff30; border-radius: 50%; border-top-color: var(--primary-color);
-            width: 60px; height: 60px; animation: spin 1s linear infinite;
-        }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
-        #processing-view p { margin-top: 25px; font-size: 1em; color: var(--text-secondary-color); text-align: center; }
+navSolveBtn.addEventListener('click', () => showSection(getSolverHTML(), 'solve'));
+navChatBtn.addEventListener('click', () => showSection(getChatHTML(), 'chat'));
+backToSolverBtn.addEventListener('click', () => initializeAppUI());
 
-        #results-view { justify-content: flex-start; overflow-y: auto; gap: 20px; padding-bottom: 80px;}
-        .solution-card {
-            background: rgba(40, 40, 58, 0.5); border-left: 4px solid var(--primary-color);
-            border-radius: 10px; padding: 20px; width: 100%;
-        }
-        .solution-content { line-height: 1.7; font-size: 0.95em; word-wrap: break-word; }
-        .solution-content h3 { margin-top: 1em; margin-bottom: 0.5em; color: var(--text-color); }
-        .solution-content strong { font-weight: 600; }
-        .solution-content hr { border: none; border-top: 2px dashed var(--border-color); margin: 25px 0; }
-        
-        /* Chat View */
-        #chat-view { padding: 0; justify-content: flex-end; position: relative; }
-        #new-chat-btn {
-            position: absolute; top: 10px; right: 10px; z-index: 10;
-            background: var(--input-bg-color); border: 1px solid var(--border-color);
-            color: var(--text-secondary-color); border-radius: 20px; padding: 5px 12px;
-            font-size: 0.8em; cursor: pointer; transition: all 0.2s ease;
-        }
-        #new-chat-btn:hover { background: var(--primary-color); color: #fff; }
-        .chat-messages { width: 100%; flex-grow: 1; overflow-y: auto; padding: 20px 10px; }
-        .chat-bubble { max-width: 80%; padding: 10px 15px; border-radius: 18px; line-height: 1.6; margin-bottom: 10px; word-wrap: break-word; }
-        .chat-bubble.user { background: linear-gradient(135deg, var(--primary-color), var(--secondary-color)); color: white; margin-left: auto; border-bottom-right-radius: 5px; }
-        .chat-bubble.ai { background: #2a2a3a; color: var(--text-color); margin-right: auto; border-bottom-left-radius: 5px; }
-        .chat-bubble p { margin: 0; }
-        .chat-bubble img.attached-image { max-width: 100%; border-radius: 10px; margin-top: 8px; }
-
-        .chat-input-form { display: flex; align-items: center; padding: 10px; gap: 10px; border-top: 1px solid var(--border-color); }
-        #chat-text-input {
-            flex-grow: 1; background-color: var(--input-bg-color); border: none;
-            border-radius: 20px; padding: 12px 18px; color: var(--text-color);
-            font-size: 1em; font-family: 'Poppins', sans-serif;
-        }
-        #chat-text-input:focus { outline: none; box-shadow: 0 0 0 2px var(--primary-color); }
-        .chat-action-btn { background: none; border: none; cursor: pointer; padding: 8px; }
-        .chat-action-btn svg { width: 24px; height: 24px; stroke: var(--text-secondary-color); transition: stroke 0.2s ease; }
-        .chat-action-btn:hover svg { stroke: var(--primary-color); }
-        
-        .typing-indicator span { width: 8px; height: 8px; border-radius: 50%; background: var(--text-secondary-color); display: inline-block; animation: typing-bounce 1.2s infinite ease-in-out; }
-        .typing-indicator span:nth-child(2) { animation-delay: -1.0s; }
-        .typing-indicator span:nth-child(3) { animation-delay: -0.8s; }
-        @keyframes typing-bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1.0); } }
-
-        /* Navigation */
-        nav { display: flex; width: 100%; border-top: 1px solid var(--border-color); background: rgba(30, 30, 45, 0.75); backdrop-filter: blur(10px); flex-shrink: 0; }
-        .nav-btn {
-            flex-grow: 1; background: none; border: none; color: var(--text-secondary-color);
-            padding: 12px 0; cursor: pointer; display: flex; flex-direction: column;
-            align-items: center; justify-content: center; gap: 4px; font-size: 0.7em;
-            transition: color 0.3s;
-        }
-        .nav-btn svg { width: 22px; height: 22px; stroke: var(--text-secondary-color); transition: stroke 0.3s; }
-        .nav-btn.active { color: var(--primary-color); }
-        .nav-btn.active svg { stroke: var(--primary-color); }
-        
-        #file-input, #chat-image-input { display: none; }
-        .action-button {
-            width: 100%; padding: 15px; background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
-            border: none; border-radius: 10px; color: white;
-            font-size: 1.1em; font-weight: 600; cursor: pointer; transition: all 0.3s ease;
-        }
-        .action-button:disabled { background: #555; cursor: not-allowed; opacity: 0.7; }
-        .action-button:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 5px 20px hsla(260, 80%, 60%, 0.3); }
-        .error-message { color: var(--error-color); background: #ff555520; border: 1px solid var(--error-color); padding: 15px; border-radius: 8px; text-align:center; width: 100%; white-space: pre-wrap; word-wrap: break-word; }
-    </style>
-</head>
-<body>
-    <div id="app-container" class="app-container">
-        <header><h1>SolveVipul</h1></header>
-        <main>
-            <div id="api-key-view" class="view active">
-                 <h2>Welcome</h2>
-                <p>To begin, please enter your Google AI API key. Your key is stored securely in your browser. <br><a href="https://aistudio.google.com/app/apikey" target="_blank" class="api-link">Get your free key here.</a></p>
-                <input type="password" id="api-key-input" placeholder="Enter Google AI API Key">
-                <div id="api-key-status"></div>
-                <button id="save-api-key-btn" class="action-button">Validate & Start</button>
+const getSolverHTML = () => `
+    <div id="solver-view">
+        <h2>Solve a Problem</h2>
+        <div id="upload-btn-wrapper">
+            <div id="upload-btn">
+                <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <p>Upload an Image</p>
             </div>
+        </div>
+    </div>`;
 
-            <div id="app-content-view" class="view"></div>
-
-            <div id="processing-view" class="view">
-                <div class="loader"></div>
-                <p id="loader-text">Analyzing Image...</p>
-            </div>
-            
-            <div id="results-view" class="view">
-                <div class="solution-card">
-                    <div class="solution-content"></div>
-                </div>
-                <button class="action-button" id="back-to-solver-btn">Solve Another</button>
-            </div>
-        </main>
-        
-        <nav id="main-nav" style="display: none;">
-             <button id="nav-solve" class="nav-btn">
-                <svg fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5a6 6 0 00-6-6v-1.5a6 6 0 00-6 6v1.5a6 6 0 006 6z" /></svg>
-                Solve
+const getChatHTML = () => `
+    <div id="chat-view" class="view active">
+        <button id="new-chat-btn">New Chat</button>
+        <div class="chat-messages"></div>
+        <div id="image-preview-container"></div>
+        <form id="chat-input-form" class="chat-input-form">
+            <button type="button" id="chat-upload-btn" class="chat-action-btn">
+                 <svg fill="none" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32"/></svg>
             </button>
-            <button id="nav-chat" class="nav-btn">
-                <svg fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" /></svg>
-                Chat
+            <input id="chat-text-input" type="text" placeholder="Ask anything..." autocomplete="off">
+            <button type="submit" class="chat-action-btn">
+                <svg fill="none" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
             </button>
-        </nav>
-        
-        <input type="file" id="file-input" accept="image/*">
-        <input type="file" id="chat-image-input" accept="image/*">
-    </div>
+        </form>
+    </div>`;
 
-    <script>
-        const mainNav = document.getElementById('main-nav');
-        const views = {
-            apiKey: document.getElementById('api-key-view'),
-            appContent: document.getElementById('app-content-view'),
-            processing: document.getElementById('processing-view'),
-            results: document.getElementById('results-view'),
-        };
-        const apiKeyInput = document.getElementById('api-key-input');
-        const saveApiKeyBtn = document.getElementById('save-api-key-btn');
-        const apiKeyStatus = document.getElementById('api-key-status');
-        const navSolveBtn = document.getElementById('nav-solve');
-        const navChatBtn = document.getElementById('nav-chat');
-        const loaderText = document.getElementById('loader-text');
-        const resultsContent = views.results.querySelector('.solution-content');
-        const backToSolverBtn = document.getElementById('back-to-solver-btn');
+async function validateApiKey(key) {
+    apiKeyStatus.className = 'api-key-status';
+    apiKeyStatus.textContent = 'Validating...';
+    saveApiKeyBtn.disabled = true;
 
-        let googleApiKey = '';
-        const markdownConverter = new showdown.Converter({ghCompatibleHeaderId: true, simplifiedAutoLink: true, strikethrough: true, tables: true, tasklists: true, simpleLineBreaks: true});
-        let chatHistory = [];
-        let chatImage = { data: null, mimeType: null };
-
-        function showView(viewId) {
-            Object.values(views).forEach(v => v.classList.remove('active'));
-            if (views[viewId]) views[viewId].classList.add('active');
-        }
-        
-        function showSection(sectionHTML, activeNav) {
-            views.appContent.innerHTML = sectionHTML;
-            navSolveBtn.classList.toggle('active', activeNav === 'solve');
-            navChatBtn.classList.toggle('active', activeNav === 'chat');
-            
-            if (activeNav === 'solve') {
-                document.getElementById('upload-btn-wrapper').addEventListener('click', () => document.getElementById('file-input').click());
-                document.getElementById('file-input').addEventListener('change', handleSolverUpload);
-            } else if (activeNav === 'chat') {
-                startNewChat();
-            }
-        }
-        
-        function initializeAppUI() {
-            mainNav.style.display = 'flex';
-            showSection(getSolverHTML(), 'solve');
-            showView('appContent');
-        }
-
-        navSolveBtn.addEventListener('click', () => showSection(getSolverHTML(), 'solve'));
-        navChatBtn.addEventListener('click', () => showSection(getChatHTML(), 'chat'));
-        backToSolverBtn.addEventListener('click', () => initializeAppUI());
-
-        const getSolverHTML = () => `
-            <div id="solver-view">
-                <h2>Solve a Problem</h2>
-                <div id="upload-btn-wrapper">
-                    <div id="upload-btn">
-                        <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                        <p>Upload an Image</p>
-                    </div>
-                </div>
-            </div>`;
-
-        const getChatHTML = () => `
-            <div id="chat-view" class="view active">
-                <button id="new-chat-btn">New Chat</button>
-                <div class="chat-messages"></div>
-                <div id="image-preview-container"></div>
-                <form id="chat-input-form" class="chat-input-form">
-                    <button type="button" id="chat-upload-btn" class="chat-action-btn">
-                         <svg fill="none" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.122 2.122l7.81-7.81" /></svg>
-                    </button>
-                    <input id="chat-text-input" type="text" placeholder="Ask anything..." autocomplete="off">
-                    <button type="submit" class="chat-action-btn">
-                        <svg fill="none" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>
-                    </button>
-                </form>
-            </div>`;
-            
-        async function validateApiKey(key) {
-            apiKeyStatus.className = 'api-key-status';
-            apiKeyStatus.textContent = 'Validating...';
-            saveApiKeyBtn.disabled = true;
-
-            try {
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${key}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ contents: [{ parts: [{ text: "test" }] }] })
-                });
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error.message);
-                }
-                apiKeyStatus.textContent = 'Success! Key is valid.';
-                apiKeyStatus.className = 'api-key-status success';
-                return true;
-            } catch (error) {
-                apiKeyStatus.textContent = `Error: ${error.message}`;
-                apiKeyStatus.className = 'api-key-status error';
-                saveApiKeyBtn.disabled = false;
-                return false;
-            }
-        }
-
-        saveApiKeyBtn.addEventListener('click', async () => {
-            const key = apiKeyInput.value.trim();
-            if (await validateApiKey(key)) {
-                googleApiKey = key;
-                localStorage.setItem('solveVipulGoogleApiKey', key);
-                setTimeout(() => {
-                    initializeAppUI();
-                }, 800);
-            }
+    try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${key}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: "test" }] }] })
         });
-
-        function loadApp() {
-            const storedKey = localStorage.getItem('solveVipulGoogleApiKey');
-            if (storedKey) {
-                googleApiKey = storedKey;
-                apiKeyInput.value = storedKey;
-                initializeAppUI();
-            } else {
-                showView('apiKey');
-            }
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error.message);
         }
-        
-        function handleSolverUpload(e) {
-            if (e.target.files.length > 0) {
-                const reader = new FileReader();
-                reader.onload = (event) => processSolverImage(event.target.result);
-                reader.readAsDataURL(e.target.files[0]);
-            }
-        }
-        
-        async function processSolverImage(imageDataUrl) {
-            showView('processing');
-            loaderText.textContent = 'Analyzing Image...';
-            try {
-                const solution = await callGeminiAPI(getSolverSystemPrompt(), [{ role: 'user', parts: [{ text: 'Please analyze and solve the problems in the attached image.' }, { inline_data: { mime_type: imageDataUrl.match(/^data:(image\/\w+);base64,/)[1], data: imageDataUrl.split(',')[1] } }] }]);
-                resultsContent.innerHTML = markdownConverter.makeHtml(solution);
-                showView('results');
-            } catch (error) {
-                displayError(error.message);
-            }
-        }
+        apiKeyStatus.textContent = 'Success! Key is valid.';
+        apiKeyStatus.className = 'api-key-status success';
+        return true;
+    } catch (error) {
+        apiKeyStatus.textContent = `Error: ${error.message}`;
+        apiKeyStatus.className = 'api-key-status error';
+        saveApiKeyBtn.disabled = false;
+        return false;
+    }
+}
 
-        function startNewChat() {
-            chatHistory = [];
-            const chatView = document.getElementById('app-content-view').querySelector('#chat-view');
-            if (chatView) {
-                const chatMessages = chatView.querySelector('.chat-messages');
-                chatMessages.innerHTML = '<div class="chat-bubble ai"><p>Hello! I\'m SolveVipul. Ask me anything, or upload an image to discuss.</p></div>';
-                document.getElementById('new-chat-btn').addEventListener('click', startNewChat);
-                document.getElementById('chat-input-form').addEventListener('submit', handleChatSubmit);
-                document.getElementById('chat-upload-btn').addEventListener('click', () => document.getElementById('chat-image-input').click());
-                document.getElementById('chat-image-input').addEventListener('change', handleChatImageSelect);
-            }
-        }
+saveApiKeyBtn.addEventListener('click', async () => {
+    const key = apiKeyInput.value.trim();
+    if (await validateApiKey(key)) {
+        googleApiKey = key;
+        localStorage.setItem('solveVipulGoogleApiKey', key);
+        setTimeout(() => {
+            initializeAppUI();
+        }, 800);
+    }
+});
 
-        function handleChatImageSelect(e) {
-            if (e.target.files.length > 0) {
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    chatImage.data = event.target.result;
-                    const previewContainer = document.getElementById('image-preview-container');
-                    if(previewContainer) {
-                        previewContainer.innerHTML = `<img id="chat-image-preview" src="${chatImage.data}" alt="Preview" style="max-height: 80px; border-radius: 8px; border: 1px solid var(--border-color);"><button id="remove-image-btn" onclick="removeChatImage()" style="position: absolute; top: -5px; right: -5px; background: red; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; font-weight: bold; cursor: pointer;">×</button>`;
-                    }
-                };
-                reader.readAsDataURL(e.target.files[0]);
-            }
-        }
-        
-        function removeChatImage() {
-            chatImage = { data: null, mimeType: null };
-            const previewContainer = document.getElementById('image-preview-container');
-            if(previewContainer) previewContainer.innerHTML = '';
-        }
+function loadApp() {
+    const storedKey = localStorage.getItem('solveVipulGoogleApiKey');
+    if (storedKey) {
+        googleApiKey = storedKey;
+        apiKeyInput.value = storedKey;
+        initializeAppUI();
+    } else {
+        showView('apiKey');
+    }
+}
 
-        async function handleChatSubmit(e) {
-            e.preventDefault();
-            const textInput = document.getElementById('chat-text-input');
-            const userText = textInput.value.trim();
+function handleSolverUpload(e) {
+    if (e.target.files.length > 0) {
+        const reader = new FileReader();
+        reader.onload = (event) => processSolverImage(event.target.result);
+        reader.readAsDataURL(e.target.files[0]);
+    }
+}
 
-            if (!userText && !chatImage.data) return;
+async function processSolverImage(imageDataUrl) {
+    showView('processing');
+    loaderText.textContent = 'Analyzing Image...';
+    try {
+        const solution = await callGeminiAPI(
+            getSolverSystemPrompt(),
+            [{
+                role: 'user',
+                parts: [
+                    { text: 'Please analyze and solve the problems in the attached image.' },
+                    { inline_data: { mime_type: imageDataUrl.match(/^data:(image\/\w+);base64,/)[1], data: imageDataUrl.split(',')[1] } }
+                ]
+            }]
+        );
+        resultsContent.innerHTML = markdownConverter.makeHtml(solution);
+        showView('results');
+    } catch (error) {
+        displayError(error.message);
+    }
+}
 
-            let userMessageHTML = userText ? `<p>${userText}</p>` : '';
-            if (chatImage.data) userMessageHTML += `<img src="${chatImage.data}" class="attached-image">`;
-            addMessageToUI(userMessageHTML, 'user');
-            
-            let userParts = [];
-            if (userText) userParts.push({ text: userText });
-            if (chatImage.data) {
-                const match = chatImage.data.match(/^data:(image\/\w+);base64,(.*)$/);
-                userParts.push({ inline_data: { mime_type: match[1], data: match[2] } });
-            }
-            chatHistory.push({ role: "user", parts: userParts });
+function startNewChat() {
+    chatHistory = [];
+    const chatView = document.getElementById('app-content-view').querySelector('#chat-view');
+    if (chatView) {
+        const chatMessages = chatView.querySelector('.chat-messages');
+        chatMessages.innerHTML = '';
+    }
+}
 
-            textInput.value = '';
-            const aiTypingBubble = addMessageToUI('<div><span class="typing-indicator"><span></span><span></span><span></span></span></div>', 'ai');
-            removeChatImage();
+function getSolverSystemPrompt() {
+    return "You are an AI tutor that solves handwritten or printed problems step-by-step clearly.";
+}
 
-            try {
-                const aiResponseText = await callGeminiAPI(getChatSystemPrompt(), chatHistory);
-                chatHistory.push({ role: "model", parts: [{ text: aiResponseText }] });
-                aiTypingBubble.innerHTML = parseAIResponse(aiResponseText);
-            } catch (error) {
-                aiTypingBubble.innerHTML = `<p class="error-message" style="max-width: 100%;">${error.message}</p>`;
-            }
-        }
+async function callGeminiAPI(systemPrompt, contents) {
+    const body = { contents, system_instruction: { role: 'system', parts: [{ text: systemPrompt }] } };
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || 'API request failed');
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response.";
+}
 
-        function addMessageToUI(content, sender) {
-            const messagesContainer = document.querySelector('.chat-messages');
-            if (messagesContainer) {
-                const bubble = document.createElement('div');
-                bubble.className = `chat-bubble ${sender}`;
-                bubble.innerHTML = content;
-                messagesContainer.appendChild(bubble);
-                messagesContainer.scrollTop = messagesContainer.scrollHeight;
-                return bubble;
-            }
-        }
+function displayError(message) {
+    resultsContent.innerHTML = `<div class="error-message">${message}</div>`;
+    showView('results');
+}
 
-        function parseAIResponse(text) {
-            let html = markdownConverter.makeHtml(text);
-            html = html.replace(/\[IMAGE_GEN: (.*?)\]/g, (match, description) => `<div class="generated-content"><img src="https://source.unsplash.com/random/400x225?${encodeURIComponent(description)}" alt="${description}"><p>${description}</p></div>`);
-            return html;
-        }
-
-        function getSolverSystemPrompt() {
-            return `You are SolveVipul, an expert AI tutor. A user has provided an image that may contain one or multiple academic questions of any level. Your mission is to: 1. Analyze the image and accurately transcribe all text. 2. Identify every distinct question. Ignore surrounding noise. 3. For EACH question, provide a complete solution in Markdown format, separated by a '---' horizontal rule. 4. Structure each solution: '### Question [Number]', '### Subject', '### Step-by-Step Solution', '### Final Answer' (in **bold**). 5. If no solvable questions are found, explain politely.`;
-        }
-        
-        function getChatSystemPrompt() {
-             return `You are SolveVipul, a friendly and brilliant AI assistant. Engage in a helpful conversation, remembering the context of previous messages. - If the user provides an image, analyze it and answer their questions about it. - If the user asks you to generate an image, respond with a vivid description inside a special tag like this: [IMAGE_GEN: A photorealistic cat in a spacesuit]. Do NOT write any other text outside this tag unless the prompt asks for it. - For all other questions, provide a clear, helpful, and well-formatted Markdown response.`;
-        }
-
-        async function callGeminiAPI(systemInstruction, history) {
-            const requestBody = {
-                contents: history,
-                systemInstruction: { parts: [{ text: systemInstruction }] }
-            };
-
-            try {
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${googleApiKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(requestBody)
-                });
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.error?.message || 'Unknown API error.');
-                if (!data.candidates || data.candidates.length === 0) throw new Error("No response from AI. The content may have been blocked.");
-                return data.candidates[0].content.parts[0].text;
-            } catch (error) {
-                console.error('AI Fetch Error:', error);
-                throw error;
-            }
-        }
-        
-        function displayError(message) {
-            resultsContent.innerHTML = `<div class="error-message"><strong>Error:</strong><br>${message}</div>`;
-            showView('results');
-        }
-
-        loadApp();
-    </script>
-    <!--Start of Tawk.to Script-->
-    <script type="text/javascript">
-    var Tawk_API=Tawk_API||{}, Tawk_LoadStart=new Date();
-    (function(){
-    var s1=document.createElement("script"),s0=document.getElementsByTagName("script")[0];
-    s1.async=true;
-    s1.src='https://embed.tawk.to/68cf937db3aa551926429f13/1j5ldg93p';
-    s1.charset='UTF-8';
-    s1.setAttribute('crossorigin','*');
-    s0.parentNode.insertBefore(s1,s0);
-    })();
-    </script>
-    <!--End of Tawk.to Script-->
-</body>
-</html>
+loadApp();
+</script>
