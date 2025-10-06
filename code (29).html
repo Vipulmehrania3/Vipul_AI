@@ -137,6 +137,7 @@
             border-top: 1px solid var(--border-color);
             background-color: var(--surface-color);
             position: relative;
+            min-height: 0px; /* Ensure it takes up space when empty */
         }
 
         #chat-image-preview {
@@ -296,19 +297,25 @@
         
         function showSection(sectionHTML, activeNav) {
             views.appContent.innerHTML = sectionHTML;
+            mainNav.style.display = 'flex'; // Ensure nav is visible when content is loaded
             navSolveBtn.classList.toggle('active', activeNav === 'solve');
             navChatBtn.classList.toggle('active', activeNav === 'chat');
             
+            // Re-bind event listeners for dynamically loaded content
             if (activeNav === 'solve') {
-                document.getElementById('upload-btn-wrapper').addEventListener('click', () => document.getElementById('file-input').click());
-                document.getElementById('file-input').addEventListener('change', handleSolverUpload);
+                const uploadBtnWrapper = document.getElementById('upload-btn-wrapper');
+                if (uploadBtnWrapper) {
+                    uploadBtnWrapper.addEventListener('click', () => document.getElementById('file-input').click());
+                    document.getElementById('file-input').removeEventListener('change', handleSolverUpload); // Prevent duplicate listeners
+                    document.getElementById('file-input').addEventListener('change', handleSolverUpload);
+                }
             } else if (activeNav === 'chat') {
-                startNewChat();
+                startNewChat(); // This also re-binds chat specific listeners
             }
         }
         
         function initializeAppUI() {
-            mainNav.style.display = 'flex';
+            // Ensure nav is visible and then show the solve section
             showSection(getSolverHTML(), 'solve');
             showView('appContent');
         }
@@ -376,9 +383,9 @@
             if (await validateApiKey(key)) {
                 googleApiKey = key;
                 localStorage.setItem('solveVipulGoogleApiKey', key);
-                setTimeout(() => {
-                    initializeAppUI();
-                }, 800);
+                // Directly call initializeAppUI after successful validation and storage
+                // without an arbitrary timeout, making the transition more immediate.
+                initializeAppUI(); 
             }
         });
 
@@ -406,7 +413,8 @@
             loaderText.textContent = 'Analyzing Image...';
             try {
                 const solution = await callGeminiAPI(getSolverSystemPrompt(), [{ role: 'user', parts: [{ text: 'Please analyze and solve the problems in the attached image.' }, { inline_data: { mime_type: imageDataUrl.match(/^data:(image\/\w+);base64,/)[1], data: imageDataUrl.split(',')[1] } }] }]);
-                resultsContent.innerHTML = markdownConverter.makeHtml(solution);showView('results');
+                resultsContent.innerHTML = markdownConverter.makeHtml(solution);
+                showView('results');
             } catch (error) {
                 displayError(error.message);
             }
@@ -419,10 +427,31 @@
             if (chatView) {
                 const chatMessages = chatView.querySelector('.chat-messages');
                 chatMessages.innerHTML = '<div class="chat-bubble ai"><p>Hello! I\'m SolveVipul. Ask me anything, or upload an image to discuss.</p></div>';
-                document.getElementById('new-chat-btn').addEventListener('click', startNewChat);
-                document.getElementById('chat-input-form').addEventListener('submit', handleChatSubmit);
-                document.getElementById('chat-upload-btn').addEventListener('click', () => document.getElementById('chat-image-input').click());
-                document.getElementById('chat-image-input').addEventListener('change', handleChatImageSelect);
+                
+                // Ensure event listeners are correctly re-bound
+                const newChatBtn = document.getElementById('new-chat-btn');
+                if (newChatBtn) {
+                    newChatBtn.removeEventListener('click', startNewChat); // Prevent duplicates
+                    newChatBtn.addEventListener('click', startNewChat);
+                }
+
+                const chatInputForm = document.getElementById('chat-input-form');
+                if (chatInputForm) {
+                    chatInputForm.removeEventListener('submit', handleChatSubmit); // Prevent duplicates
+                    chatInputForm.addEventListener('submit', handleChatSubmit);
+                }
+
+                const chatUploadBtn = document.getElementById('chat-upload-btn');
+                if (chatUploadBtn) {
+                    chatUploadBtn.removeEventListener('click', () => document.getElementById('chat-image-input').click()); // Prevent duplicates
+                    chatUploadBtn.addEventListener('click', () => document.getElementById('chat-image-input').click());
+                }
+
+                const chatImageInput = document.getElementById('chat-image-input');
+                if (chatImageInput) {
+                    chatImageInput.removeEventListener('change', handleChatImageSelect); // Prevent duplicates
+                    chatImageInput.addEventListener('change', handleChatImageSelect);
+                }
                 
                 const previewContainer = document.getElementById('image-preview-container');
                 if(previewContainer) previewContainer.innerHTML = ''; // Clear preview
@@ -504,23 +533,8 @@
         }
 
         function parseAIResponse(text) {
-            // Replace [IMAGE_GEN: description] with an image placeholder
-            let html = text.replace(/`<img>`/g, (match) => {
-                // The image generation model will replace `<img>` with an actual image.
-                // For the purpose of this client-side display, we'll just show a placeholder
-                // or you could use a static image that signifies a generated image.
-                // In a real application, you'd send this to an image generation service
-                // and replace the `<img>` tag with the actual image URL returned.
-                // For now, we'll indicate that an image was requested.
-                // Since the prompt states "Your primary goal is to assist the user effectively, using image generation as a tool to enhance your responses.
-                                    // ... (previous code) ...
-
-            // Since the prompt states "Your primary goal is to assist the user effectively, using image generation as a tool to enhance your responses.
-            // To trigger an image, you must output the tag `<img>`. Which will be substituted with an image by a separate image generation and editing model."
-            // We'll replace the `<img>` tag directly with the placeholder from the prompt's instructions.
-            // The actual image generation would happen server-side or by another model
-            // based on the context of the conversation before `<img>` was emitted.
-            html = html.replace(/`<img>`/g, '</div><div class="generated-content"><img src="https://via.placeholder.com/400x225?text=Generated+Image" alt="Generated Image Placeholder"><p>Image generated by AI</p></div>');
+            // Replace `<img>` tag with an image placeholder
+            let html = text.replace(/`<img>`/g, '<div class="generated-content"><img src="https://via.placeholder.com/400x225?text=Generated+Image" alt="Generated Image Placeholder"><p>Image generated by AI</p></div>');
             
             // Convert markdown to HTML after handling the custom image tag
             html = markdownConverter.makeHtml(html);
@@ -533,7 +547,7 @@
         }
         
         function getChatSystemPrompt() {
-             return `You are SolveVipul, a friendly and brilliant AI assistant. Engage in a helpful conversation, remembering the context of previous messages. - If the user provides an image, analyze it and answer their questions about it. - If the user asks you to generate an image, respond with a vivid description inside a special tag like this: `<img>`. Do NOT write any other text outside this tag unless the prompt asks for it. - For all other questions, provide a clear, helpful, and well-formatted Markdown response.`;
+             return `You are SolveVipul, a friendly and brilliant AI assistant. Engage in a helpful conversation, remembering the context of previous messages. - If the user provides an image, analyze it and answer their questions about it. - If the user asks you to generate an image, respond with a vivid description inside a special tag like this: \`<img>\`. Do NOT write any other text outside this tag unless the prompt asks for it. - For all other questions, provide a clear, helpful, and well-formatted Markdown response.`;
         }
 
         async function callGeminiAPI(systemInstruction, history) {
