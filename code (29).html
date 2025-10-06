@@ -375,4 +375,209 @@
             const key = apiKeyInput.value.trim();
             if (await validateApiKey(key)) {
                 googleApiKey = key;
-                loc
+                localStorage.setItem('solveVipulGoogleApiKey', key);
+                setTimeout(() => {
+                    initializeAppUI();
+                }, 800);
+            }
+        });
+
+        function loadApp() {
+            const storedKey = localStorage.getItem('solveVipulGoogleApiKey');
+            if (storedKey) {
+                googleApiKey = storedKey;
+                apiKeyInput.value = storedKey;
+                initializeAppUI();
+            } else {
+                showView('apiKey');
+            }
+        }
+        
+        function handleSolverUpload(e) {
+            if (e.target.files.length > 0) {
+                const reader = new FileReader();
+                reader.onload = (event) => processSolverImage(event.target.result);
+                reader.readAsDataURL(e.target.files[0]);
+            }
+        }
+        
+        async function processSolverImage(imageDataUrl) {
+            showView('processing');
+            loaderText.textContent = 'Analyzing Image...';
+            try {
+                const solution = await callGeminiAPI(getSolverSystemPrompt(), [{ role: 'user', parts: [{ text: 'Please analyze and solve the problems in the attached image.' }, { inline_data: { mime_type: imageDataUrl.match(/^data:(image\/\w+);base64,/)[1], data: imageDataUrl.split(',')[1] } }] }]);
+                resultsContent.innerHTML = markdownConverter.makeHtml(solution);showView('results');
+            } catch (error) {
+                displayError(error.message);
+            }
+        }
+
+        function startNewChat() {
+            chatHistory = [];
+            chatImage = { data: null, mimeType: null }; // Reset image on new chat
+            const chatView = document.getElementById('app-content-view').querySelector('#chat-view');
+            if (chatView) {
+                const chatMessages = chatView.querySelector('.chat-messages');
+                chatMessages.innerHTML = '<div class="chat-bubble ai"><p>Hello! I\'m SolveVipul. Ask me anything, or upload an image to discuss.</p></div>';
+                document.getElementById('new-chat-btn').addEventListener('click', startNewChat);
+                document.getElementById('chat-input-form').addEventListener('submit', handleChatSubmit);
+                document.getElementById('chat-upload-btn').addEventListener('click', () => document.getElementById('chat-image-input').click());
+                document.getElementById('chat-image-input').addEventListener('change', handleChatImageSelect);
+                
+                const previewContainer = document.getElementById('image-preview-container');
+                if(previewContainer) previewContainer.innerHTML = ''; // Clear preview
+            }
+        }
+  
+        function handleChatImageSelect(e) {
+            if (e.target.files.length > 0) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    chatImage.data = event.target.result;
+                    const match = chatImage.data.match(/^data:(image\/\w+);base64,/);
+                    if (match) {
+                        chatImage.mimeType = match[1];
+                    } else {
+                        console.error('Could not determine MIME type from image data URL.');
+                        chatImage.mimeType = 'image/jpeg'; // Fallback
+                    }
+
+                    const previewContainer = document.getElementById('image-preview-container');
+                    if(previewContainer) {
+                        previewContainer.innerHTML = `<img id="chat-image-preview" src="${chatImage.data}" alt="Preview"><button id="remove-image-btn">×</button>`;
+                        document.getElementById('remove-image-btn').addEventListener('click', removeChatImage);
+                    }
+                };
+                reader.readAsDataURL(e.target.files[0]);
+            }
+        }
+        
+        function removeChatImage() {
+            chatImage = { data: null, mimeType: null };
+            const previewContainer = document.getElementById('image-preview-container');
+            if(previewContainer) previewContainer.innerHTML = '';
+            document.getElementById('chat-image-input').value = ''; // Clear file input
+        }
+
+        async function handleChatSubmit(e) {
+            e.preventDefault();
+            const textInput = document.getElementById('chat-text-input');
+            const userText = textInput.value.trim();
+
+            if (!userText && !chatImage.data) return;
+
+            let userMessageHTML = userText ? `<p>${userText}</p>` : '';
+            if (chatImage.data) userMessageHTML += `<img src="${chatImage.data}" class="attached-image">`;
+            addMessageToUI(userMessageHTML, 'user');
+            
+            let userParts = [];
+            if (userText) userParts.push({ text: userText });
+            if (chatImage.data && chatImage.mimeType) {
+                userParts.push({ inline_data: { mime_type: chatImage.mimeType, data: chatImage.data.split(',')[1] } });
+            }
+            chatHistory.push({ role: "user", parts: userParts });
+
+            textInput.value = '';
+            removeChatImage(); // Clear image preview after submission
+
+            const aiTypingBubble = addMessageToUI('<div><span class="typing-indicator"><span></span><span></span><span></span></span></div>', 'ai');
+
+            try {
+                const aiResponseText = await callGeminiAPI(getChatSystemPrompt(), chatHistory);
+                chatHistory.push({ role: "model", parts: [{ text: aiResponseText }] });
+                aiTypingBubble.innerHTML = parseAIResponse(aiResponseText);
+            } catch (error) {
+                aiTypingBubble.innerHTML = `<p class="error-message" style="max-width: 100%;">${error.message}</p>`;
+            }
+        }
+
+        function addMessageToUI(content, sender) {
+            const messagesContainer = document.querySelector('.chat-messages');
+            if (messagesContainer) {
+                const bubble = document.createElement('div');
+                bubble.className = `chat-bubble ${sender}`;
+                bubble.innerHTML = content;
+                messagesContainer.appendChild(bubble);
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                return bubble;
+            }
+        }
+
+        function parseAIResponse(text) {
+            // Replace [IMAGE_GEN: description] with an image placeholder
+            let html = text.replace(/`<img>`/g, (match) => {
+                // The image generation model will replace `<img>` with an actual image.
+                // For the purpose of this client-side display, we'll just show a placeholder
+                // or you could use a static image that signifies a generated image.
+                // In a real application, you'd send this to an image generation service
+                // and replace the `<img>` tag with the actual image URL returned.
+                // For now, we'll indicate that an image was requested.
+                // Since the prompt states "Your primary goal is to assist the user effectively, using image generation as a tool to enhance your responses.
+                                    // ... (previous code) ...
+
+            // Since the prompt states "Your primary goal is to assist the user effectively, using image generation as a tool to enhance your responses.
+            // To trigger an image, you must output the tag `<img>`. Which will be substituted with an image by a separate image generation and editing model."
+            // We'll replace the `<img>` tag directly with the placeholder from the prompt's instructions.
+            // The actual image generation would happen server-side or by another model
+            // based on the context of the conversation before `<img>` was emitted.
+            html = html.replace(/`<img>`/g, '</div><div class="generated-content"><img src="https://via.placeholder.com/400x225?text=Generated+Image" alt="Generated Image Placeholder"><p>Image generated by AI</p></div>');
+            
+            // Convert markdown to HTML after handling the custom image tag
+            html = markdownConverter.makeHtml(html);
+
+            return html;
+        }
+
+        function getSolverSystemPrompt() {
+            return `You are SolveVipul, an expert AI tutor. A user has provided an image that may contain one or multiple academic questions of any level. Your mission is to: 1. Analyze the image and accurately transcribe all text. 2. Identify every distinct question. Ignore surrounding noise. 3. For EACH question, provide a complete solution in Markdown format, separated by a '---' horizontal rule. 4. Structure each solution: '### Question [Number]', '### Subject', '### Step-by-Step Solution', '### Final Answer' (in **bold**). 5. If no solvable questions are found, explain politely.`;
+        }
+        
+        function getChatSystemPrompt() {
+             return `You are SolveVipul, a friendly and brilliant AI assistant. Engage in a helpful conversation, remembering the context of previous messages. - If the user provides an image, analyze it and answer their questions about it. - If the user asks you to generate an image, respond with a vivid description inside a special tag like this: `<img>`. Do NOT write any other text outside this tag unless the prompt asks for it. - For all other questions, provide a clear, helpful, and well-formatted Markdown response.`;
+        }
+
+        async function callGeminiAPI(systemInstruction, history) {
+            const requestBody = {
+                contents: history,
+                systemInstruction: { parts: [{ text: systemInstruction }] }
+            };
+
+            try {
+                // Changed 'gemini-1.5-flash-latest' to 'gemini-pro' as per the fix
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${googleApiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error?.message || 'Unknown API error.');
+                if (!data.candidates || data.candidates.length === 0) throw new Error("No response from AI. The content may have been blocked.");
+                return data.candidates[0].content.parts[0].text;
+            } catch (error) {
+                console.error('AI Fetch Error:', error);
+                throw error;
+            }
+        }
+        
+        function displayError(message) {
+            resultsContent.innerHTML = `<div class="error-message"><strong>Error:</strong><br>${message}</div>`;
+            showView('results');
+        }
+
+        loadApp();
+    </script>
+    <!--Start of Tawk.to Script-->
+    <script type="text/javascript">
+    var Tawk_API=Tawk_API||{}, Tawk_LoadStart=new Date();
+    (function(){
+    var s1=document.createElement("script"),s0=document.getElementsByTagName("script")[0];
+    s1.async=true;
+    s1.src='https://embed.tawk.to/68cf937db3aa551926429f13/1j5ldg93p';
+    s1.charset='UTF-8';
+    s1.setAttribute('crossorigin','*');
+    s0.parentNode.insertBefore(s1,s0);
+    })();
+    </script>
+    <!--End of Tawk.to Script-->
+</body>
+</html>
